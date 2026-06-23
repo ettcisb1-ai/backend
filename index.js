@@ -39,6 +39,7 @@ try {
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
+  'https://lms-virid-seven.vercel.app',
   // Add any other Vercel preview URLs here if needed
 ];
 
