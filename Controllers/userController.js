@@ -134,16 +134,15 @@ const loginUser = async (req, res) => {
           return false; // expired or invalid — remove it
         }
       });
-      user.activeSessions = validSessions;
 
-      // Enforce device limit
+      // Enforce device limit (FIFO session eviction to prevent user lockouts)
       const limit = user.deviceLimit || 1;
       if (validSessions.length >= limit) {
-        return res.status(403).json({
-          success: false,
-          message: `Device limit reached. You are allowed to log in on ${limit} device(s) only. Please log out from another device.`,
-        });
+        console.log(`[DEVICE_LIMIT] User ${user.email} reached limit (${limit}). Evicting oldest session(s).`);
+        const excessCount = validSessions.length - limit + 1;
+        validSessions.splice(0, excessCount); // Evict the oldest sessions from the array
       }
+      user.activeSessions = validSessions;
 
       user.ip = clientIp;
 

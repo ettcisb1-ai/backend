@@ -146,6 +146,21 @@ const getStreamToken = async (req, res) => {
       adaptiveStreaming: video.adaptiveStreaming,
     };
 
+    // ── Path 0: DRM protected video — return Widevine DASH stream & license server ──
+    // FOR TESTING: Force DRM (Widevine) on all videos so screenshot blackout is active
+    if (video.drm || true) {
+      return res.status(200).json({
+        success: true,
+        streamUrl: 'https://storage.googleapis.com/shaka-demo-assets/sintel-widevine/dash.mpd',
+        licenseServerUrl: 'https://cwip-shaka-proxy.appspot.com/no_auth',
+        isDrm: true,
+        isHLS: false,
+        isDASH: true,
+        expiresIn: 7200,
+        security: securityFlags,
+      });
+    }
+
     // ── Path A: S3-hosted video — generate a presigned GET URL ──────────────
     if (video.videoUrl && video.videoUrl.includes('amazonaws.com')) {
       const { GetObjectCommand } = require('@aws-sdk/client-s3');
