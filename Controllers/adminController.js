@@ -211,8 +211,14 @@ const adminUpdateUser = async (req, res) => {
     }
     if (phoneNumber) user.phoneNumber = phoneNumber;
     if (role) user.role = role;
-    if (status) user.isActive = (status === 'Active');
-    if (subscription) {
+    if (status !== undefined && status !== null && status !== '') {
+      // Map frontend display value to DB enum
+      const statusMap = { 'Active': 'active', 'Inactive': 'inactive', 'Suspended': 'suspended' };
+      const dbStatus = statusMap[status] || status.toLowerCase();
+      user.status = dbStatus;
+      // Keep isActive in sync — only 'active' allows login
+      user.isActive = (dbStatus === 'active');
+    }    if (subscription) {
       user.subscribed = (subscription === 'Pro (Paid)');
       user.planType = (subscription === 'Pro (Paid)' ? 'Pro' : 'Free');
     }
@@ -271,6 +277,7 @@ const adminToggleUserStatus = async (req, res) => {
     }
 
     user.isActive = req.body.isActive !== undefined ? req.body.isActive : !user.isActive;
+    user.status = user.isActive ? 'active' : 'suspended';
     const updatedUser = await user.save();
 
     return res.json({

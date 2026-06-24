@@ -43,6 +43,11 @@ const userSchema = new mongoose.Schema(
         type: Boolean,
         default: true,
       },
+      status: {
+        type: String,
+        enum: ['active', 'inactive', 'suspended'],
+        default: 'active',
+      },
       ip: {
         type: String,
         default: '192.168.10.45',
