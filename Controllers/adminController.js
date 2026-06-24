@@ -213,7 +213,7 @@ const adminUpdateUser = async (req, res) => {
     if (role) user.role = role;
     if (status !== undefined && status !== null && status !== '') {
       // Map frontend display value to DB enum
-      const statusMap = { 'Active': 'active', 'Inactive': 'inactive', 'Suspended': 'suspended' };
+      const statusMap = { 'Active': 'active', 'Inactive': 'inactive' };
       const dbStatus = statusMap[status] || status.toLowerCase();
       user.status = dbStatus;
       // Keep isActive in sync — only 'active' allows login
@@ -277,7 +277,7 @@ const adminToggleUserStatus = async (req, res) => {
     }
 
     user.isActive = req.body.isActive !== undefined ? req.body.isActive : !user.isActive;
-    user.status = user.isActive ? 'active' : 'suspended';
+    user.status = user.isActive ? 'active' : 'inactive';
     const updatedUser = await user.save();
 
     return res.json({

@@ -38,6 +38,7 @@ try {
 // Explicitly allow known frontend origins (local dev + Vercel deployment)
 const allowedOrigins = [
   'http://localhost:5173',
+  'http://localhost:5174',
   'http://localhost:3000',
   'https://lms-virid-seven.vercel.app',
   // Add any other Vercel preview URLs here if needed
@@ -80,6 +81,15 @@ app.get('/api/health', (req, res) => {
   res.json({
     success: true,
     message: 'LMS Backend Server is running smoothly!',
+    timestamp: new Date(),
+  });
+});
+
+// Test API Route
+app.get('/api/test', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Live server is running!',
     timestamp: new Date(),
   });
 });

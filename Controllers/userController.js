@@ -105,10 +105,7 @@ const loginUser = async (req, res) => {
 
     if (user && (await user.comparePassword(password))) {
       if (!user.isActive) {
-        const msg = user.status === 'suspended'
-          ? 'Your account has been suspended.'
-          : 'Your account is inactive.';
-        return res.status(403).json({ success: false, message: msg });
+        return res.status(403).json({ success: false, message: 'Your account is inactive.' });
       }
 
       // Capture client IP address from the request
