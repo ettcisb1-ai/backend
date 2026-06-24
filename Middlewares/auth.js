@@ -31,7 +31,10 @@ const protect = async (req, res, next) => {
           return res.status(401).json({ success: false, message: 'Not authorized, user not found' });
         }
         if (!user.isActive) {
-          return res.status(403).json({ success: false, message: 'User account is deactivated' });
+          const msg = user.status === 'suspended'
+            ? 'Your account has been suspended.'
+            : 'Your account is inactive.';
+          return res.status(403).json({ success: false, message: msg });
         }
         // Check if this token is still in activeSessions (force logout support)
         if (user.activeSessions && user.activeSessions.length > 0) {
