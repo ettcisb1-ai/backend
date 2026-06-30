@@ -556,14 +556,19 @@ const deleteVideo = async (req, res) => {
     // ── Also remove this video's lecture entry from its parent course ─────────
     if (video.course) {
       try {
-        await Course.updateOne(
-          { _id: video.course },
-          {
-            $pull: {
-              'modules.$[].lectures': { video: video._id },
-            },
+        const course = await Course.findById(video.course);
+        if (course) {
+          if (course.modules && Array.isArray(course.modules)) {
+            course.modules.forEach(mod => {
+              if (mod.lectures && Array.isArray(mod.lectures)) {
+                mod.lectures = mod.lectures.filter(lec => lec.video && lec.video.toString() !== video._id.toString());
+              }
+            });
+            course.markModified('modules');
           }
-        );
+          await course.save();
+          console.log(`[Video Service] Removed video "${video.title}" from course "${course.title}" modules and saved (new videosCount: ${course.videosCount})`);
+        }
       } catch (courseErr) {
         console.error('Error removing lecture from course modules:', courseErr);
         // Don't fail the delete — just log it
