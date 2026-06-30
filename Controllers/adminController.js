@@ -162,6 +162,19 @@ const adminCreateUser = async (req, res) => {
 
     const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '192.168.10.45';
 
+    let expiryDate = '';
+    let purchaseDate = '';
+    if (subscription === 'Pro (Paid)') {
+      const oneMonthFromNow = new Date();
+      oneMonthFromNow.setMonth(oneMonthFromNow.getMonth() + 1);
+      expiryDate = oneMonthFromNow.toLocaleDateString('en-US', {
+        month: 'short', day: 'numeric', year: 'numeric',
+      });
+      purchaseDate = new Date().toLocaleDateString('en-US', {
+        month: 'short', day: 'numeric', year: 'numeric',
+      });
+    }
+
     const user = await User.create({
       name,
       email,
@@ -172,6 +185,8 @@ const adminCreateUser = async (req, res) => {
       ip: clientIp,
       subscribed: subscription === 'Pro (Paid)',
       planType: subscription === 'Pro (Paid)' ? 'Pro' : 'Free',
+      expiryDate,
+      purchaseDate,
       activityLog: [
         { action: 'Account Created', ip: clientIp, device: 'System/Admin', time: new Date() }
       ]
@@ -221,6 +236,25 @@ const adminUpdateUser = async (req, res) => {
     }    if (subscription) {
       user.subscribed = (subscription === 'Pro (Paid)');
       user.planType = (subscription === 'Pro (Paid)' ? 'Pro' : 'Free');
+      // When manually granting Pro access, set a 1-month expiry if none is set or it's in the past
+      if (subscription === 'Pro (Paid)') {
+        const currentExpiry = user.expiryDate ? new Date(user.expiryDate) : null;
+        const needsExpiry = !currentExpiry || isNaN(currentExpiry) || currentExpiry < new Date();
+        if (needsExpiry) {
+          const oneMonthFromNow = new Date();
+          oneMonthFromNow.setMonth(oneMonthFromNow.getMonth() + 1);
+          user.expiryDate = oneMonthFromNow.toLocaleDateString('en-US', {
+            month: 'short', day: 'numeric', year: 'numeric',
+          });
+          user.purchaseDate = new Date().toLocaleDateString('en-US', {
+            month: 'short', day: 'numeric', year: 'numeric',
+          });
+        }
+      } else {
+        // Downgrading to Free — clear subscription dates
+        user.expiryDate = '';
+        user.purchaseDate = '';
+      }
     }
     if (password) user.password = password;
     let newlyAddedCourses = [];

@@ -84,11 +84,11 @@ const userSchema = new mongoose.Schema(
       },
       purchaseDate: {
         type: String,
-        default: 'May 10, 2026',
+        default: '',
       },
       expiryDate: {
         type: String,
-        default: 'June 10, 2026',
+        default: '',
       },
       resetPasswordToken: String,
       resetPasswordExpire: Date,

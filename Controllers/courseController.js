@@ -159,11 +159,13 @@ const checkCourseAccess = async (req, res) => {
     }
 
     // ── Subscription gate: if course is Premium and subscription mode is ON,
-    //    the user must be subscribed to watch ─────────────────────────────────
+    //    the user must be subscribed to watch (unless explicitly assigned by admin) ─────────────────────────────────
     if (course.price === 'Premium') {
       const settings = await SubscriptionSettings.getSingleton();
       if (settings.subscriptionModeEnabled && settings.portalMode === 'paid') {
-        if (!user.subscribed) {
+        // If the course is explicitly assigned to the user, bypass subscription check
+        const isManuallyAssigned = userCourses.includes(courseId) || userCourses.includes(course.title);
+        if (!user.subscribed && !isManuallyAssigned) {
           return res.status(403).json({
             success: false,
             hasAccess: false,

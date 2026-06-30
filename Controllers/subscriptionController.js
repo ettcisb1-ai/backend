@@ -354,7 +354,21 @@ const adminUpdateUserSubscription = async (req, res) => {
         if (planType) user.planType = planType;
         if (currency) user.currency = currency;
         if (purchaseDate) user.purchaseDate = purchaseDate;
-        if (expiryDate) user.expiryDate = expiryDate;
+        if (expiryDate) {
+          user.expiryDate = expiryDate;
+        } else if (subscribed === true && planType && planType !== 'Free') {
+          // No expiry provided — default to 1 month from now
+          const oneMonthFromNow = new Date();
+          oneMonthFromNow.setMonth(oneMonthFromNow.getMonth() + 1);
+          user.expiryDate = oneMonthFromNow.toLocaleDateString('en-US', {
+            month: 'short', day: 'numeric', year: 'numeric',
+          });
+          if (!purchaseDate) {
+            user.purchaseDate = new Date().toLocaleDateString('en-US', {
+              month: 'short', day: 'numeric', year: 'numeric',
+            });
+          }
+        }
 
         const updated = await user.save();
         return res.status(200).json({

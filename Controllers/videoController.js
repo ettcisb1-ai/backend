@@ -3,35 +3,26 @@ const Course = require('../Models/Course');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const jwt = require('jsonwebtoken');
 
-// ─── In-memory token store (kept as required — no Redis) ──────────────────────
-// Maps  token → { videoId, userId, expiresAt }
-const streamTokenStore = new Map();
+// ─── JWT-based stream tokens (stateless — works on Vercel serverless) ─────────
+// Token payload: { videoId, userId, iat, exp }
+// Signed with JWT_SECRET — no in-memory state needed.
+
+const STREAM_TOKEN_SECRET = process.env.JWT_SECRET + '_stream';
 
 const generateStreamToken = (videoId, userId) => {
-  const token = crypto.randomBytes(32).toString('hex');
-  const expiresAt = Date.now() + 2 * 60 * 60 * 1000; // 2-hour TTL (legacy local files)
-  streamTokenStore.set(token, { videoId, userId, expiresAt });
-  return token;
+  return jwt.sign({ videoId, userId }, STREAM_TOKEN_SECRET, { expiresIn: '2h' });
 };
 
 const validateStreamToken = (token) => {
-  const entry = streamTokenStore.get(token);
-  if (!entry) return null;
-  if (Date.now() > entry.expiresAt) {
-    streamTokenStore.delete(token);
+  try {
+    const payload = jwt.verify(token, STREAM_TOKEN_SECRET);
+    return { videoId: payload.videoId, userId: payload.userId };
+  } catch {
     return null;
   }
-  return entry;
 };
-
-// Periodic cleanup of expired tokens
-setInterval(() => {
-  const now = Date.now();
-  for (const [token, entry] of streamTokenStore.entries()) {
-    if (now > entry.expiresAt) streamTokenStore.delete(token);
-  }
-}, 30 * 60 * 1000);
 
 // ── Shared security response headers ─────────────────────────────────────────
 const applySecurityHeaders = (res) => {
@@ -42,6 +33,17 @@ const applySecurityHeaders = (res) => {
     'Referrer-Policy': 'no-referrer',
   });
 };
+
+// Adds CORS + security headers to a raw writeHead call (stream responses bypass Express CORS middleware)
+const streamCorsHeaders = (req) => ({
+  'Access-Control-Allow-Origin': req.headers.origin || '*',
+  'Access-Control-Allow-Credentials': 'true',
+  'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges',
+  'Cache-Control': 'no-store',
+  'Pragma': 'no-cache',
+  'X-Frame-Options': 'SAMEORIGIN',
+  'Referrer-Policy': 'no-referrer',
+});
 
 // ─── Get all videos ───────────────────────────────────────────────────────────
 // @route   GET /api/videos
@@ -127,8 +129,8 @@ const getStreamToken = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Your account has been deactivated.' });
     }
 
-    // ── Validation: video must be published ───────────────────────────────────
-    if (video.status === 'Draft') {
+    // ── Validation: video must be published (skip for admins — they can preview drafts) ──
+    if (video.status === 'Draft' && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'This video is not yet available for streaming.',
@@ -148,7 +150,7 @@ const getStreamToken = async (req, res) => {
 
     // ── Path 0: DRM protected video — return Widevine DASH stream & license server ──
     // FOR TESTING: Force DRM (Widevine) on all videos so screenshot blackout is active
-    if (video.drm || true) {
+    if (video.drm) {
       return res.status(200).json({
         success: true,
         streamUrl: 'https://storage.googleapis.com/shaka-demo-assets/sintel-widevine/dash.mpd',
@@ -161,34 +163,17 @@ const getStreamToken = async (req, res) => {
       });
     }
 
-    // ── Path A: S3-hosted video — generate a presigned GET URL ──────────────
+    // ── Path A: S3-hosted video — proxy through backend token (avoids S3 CORS issues) ─
+    // We intentionally do NOT return a direct presigned S3 URL to the browser.
+    // Instead we use the same proxy token path so the browser only ever talks to
+    // our own backend (which has CORS configured). The backend fetches from S3.
     if (video.videoUrl && video.videoUrl.includes('amazonaws.com')) {
-      const { GetObjectCommand } = require('@aws-sdk/client-s3');
-      const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
-      const s3 = require('../config/s3');
-
-      let s3Key;
-      try {
-        const urlObj = new URL(video.videoUrl);
-        s3Key = urlObj.pathname.replace(/^\//, '');
-      } catch {
-        return res.status(500).json({ success: false, message: 'Invalid S3 video URL stored' });
-      }
-
-      const command = new GetObjectCommand({
-        Bucket: process.env.AWS_S3_BUCKET,
-        Key:    s3Key,
-        ResponseContentDisposition: 'inline',
-        ResponseContentType: 'video/mp4',
-      });
-
-      // 2-hour signed URL
-      const streamUrl = await getSignedUrl(s3, command, { expiresIn: 7200 });
-
+      const token = generateStreamToken(video._id.toString(), req.user._id.toString());
       return res.status(200).json({
         success: true,
-        streamUrl,
+        streamUrl: `/api/videos/stream/${token}`,
         isHLS: false,
+        token,
         expiresIn: 7200,
         security: securityFlags,
       });
@@ -232,6 +217,51 @@ const streamVideo = async (req, res) => {
 
     const videoUrl = video.videoUrl;
 
+    // ── S3-hosted video — stream via AWS SDK (authenticated, range-request aware) ──
+    if (videoUrl && videoUrl.includes('amazonaws.com')) {
+      try {
+        const { GetObjectCommand } = require('@aws-sdk/client-s3');
+        const s3 = require('../config/s3');
+
+        let s3Key;
+        const urlObj = new URL(videoUrl);
+        s3Key = urlObj.pathname.replace(/^\//, '');
+
+        const cmdParams = {
+          Bucket: process.env.AWS_S3_BUCKET,
+          Key: s3Key,
+        };
+
+        // Forward range header for seek support
+        if (req.headers.range) {
+          cmdParams.Range = req.headers.range;
+        }
+
+        const s3Res = await s3.send(new GetObjectCommand(cmdParams));
+
+        const headers = {
+          ...streamCorsHeaders(req),
+          'Content-Type': s3Res.ContentType || 'video/mp4',
+          'Content-Disposition': 'inline',
+          'Accept-Ranges': 'bytes',
+        };
+
+        if (s3Res.ContentLength) headers['Content-Length'] = s3Res.ContentLength;
+        if (s3Res.ContentRange)  headers['Content-Range']  = s3Res.ContentRange;
+
+        const statusCode = req.headers.range && s3Res.ContentRange ? 206 : 200;
+        res.writeHead(statusCode, headers);
+        s3Res.Body.pipe(res);
+        return;
+      } catch (s3Err) {
+        console.error('S3 stream error:', s3Err);
+        if (!res.headersSent) {
+          return res.status(502).json({ success: false, message: 'Failed to stream from storage' });
+        }
+        return;
+      }
+    }
+
     // ── Detect self-hosted URL to avoid proxy loop ────────────────────────────
     const selfHosts = ['localhost:3000', '127.0.0.1:3000', req.get('host') || ''];
     const isSelfUrl = (videoUrl.startsWith('http://') || videoUrl.startsWith('https://')) &&
@@ -254,13 +284,12 @@ const streamVideo = async (req, res) => {
       if (req.headers.range) requestHeaders['Range'] = req.headers.range;
 
       const proxyReq = https.request(videoUrl, { headers: requestHeaders }, (proxyRes) => {
-        const responseHeaders = { ...proxyRes.headers };
-        delete responseHeaders['content-disposition'];
-        responseHeaders['Content-Disposition'] = 'inline';
-        responseHeaders['Cache-Control'] = 'no-store';
-        responseHeaders['X-Frame-Options'] = 'SAMEORIGIN';
-        responseHeaders['Referrer-Policy'] = 'no-referrer';
-
+        const responseHeaders = {
+          ...streamCorsHeaders(req),
+          ...proxyRes.headers,
+          'Content-Disposition': 'inline',
+        };
+        delete responseHeaders['x-frame-options']; // avoid duplicate with streamCorsHeaders
         res.writeHead(proxyRes.statusCode, responseHeaders);
         proxyRes.pipe(res);
       });
@@ -289,25 +318,21 @@ const streamVideo = async (req, res) => {
       const chunkSize = end - start + 1;
 
       res.writeHead(206, {
+        ...streamCorsHeaders(req),
         'Content-Range': `bytes ${start}-${end}/${fileSize}`,
         'Accept-Ranges': 'bytes',
         'Content-Length': chunkSize,
         'Content-Type': 'video/mp4',
         'Content-Disposition': 'inline',
-        'Cache-Control': 'no-store',
-        'X-Frame-Options': 'SAMEORIGIN',
-        'Referrer-Policy': 'no-referrer',
       });
       fs.createReadStream(filePath, { start, end }).pipe(res);
     } else {
       res.writeHead(200, {
+        ...streamCorsHeaders(req),
         'Content-Length': fileSize,
         'Content-Type': 'video/mp4',
         'Content-Disposition': 'inline',
-        'Cache-Control': 'no-store',
         'Accept-Ranges': 'bytes',
-        'X-Frame-Options': 'SAMEORIGIN',
-        'Referrer-Policy': 'no-referrer',
       });
       fs.createReadStream(filePath).pipe(res);
     }
