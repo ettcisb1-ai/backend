@@ -9,6 +9,8 @@ const generateToken = (id, role) => {
   });
 };
 
+
+
 // @desc    Register a new user
 // @route   POST /api/users/register
 // @access  Public
