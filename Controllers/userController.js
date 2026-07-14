@@ -136,7 +136,7 @@ const loginUser = async (req, res) => {
       });
 
       // Enforce device limit (FIFO session eviction to prevent user lockouts)
-      const limit = user.deviceLimit || 1;
+      const limit = user.deviceLimit || 2;
       if (validSessions.length >= limit) {
         console.log(`[DEVICE_LIMIT] User ${user.email} reached limit (${limit}). Evicting oldest session(s).`);
         const excessCount = validSessions.length - limit + 1;

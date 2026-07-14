@@ -10,10 +10,10 @@ const uploadRoutes = require('./Routes/uploadRoute');
 const videoRoutes = require('./Routes/videoRoute');
 // const systemSettingsRoutes = require('./Routes/systemSettingsRoute');
 const subscriptionRoutes = require('./Routes/subscriptionRoute');
-const notificationRoutes = require('./Routes/notificationRoute');   // FR-43/44/45
-const progressRoutes = require('./Routes/progressRoute');           // FR-46/47/48
-const analyticsRoutes = require('./Routes/analyticsRoute');         // Analytics API
-const reportsRoutes = require('./Routes/reportsRoute');             // Reports API
+const notificationRoutes = require('./Routes/notificationRoute');
+const progressRoutes = require('./Routes/progressRoute');
+const analyticsRoutes = require('./Routes/analyticsRoute');
+const reportsRoutes = require('./Routes/reportsRoute');
 
 // Initialize express app
 const app = express();
@@ -41,6 +41,7 @@ const allowedOrigins = [
   'http://localhost:5174',
   'http://localhost:3000',
   'https://lms-virid-seven.vercel.app',
+  "https://lms-5at8mtcbf-ettc.vercel.app",
   // Add any other Vercel preview URLs here if needed
 ];
 
