@@ -39,10 +39,13 @@ const streamCorsHeaders = (req) => ({
   'Access-Control-Allow-Origin': req.headers.origin || '*',
   'Access-Control-Allow-Credentials': 'true',
   'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges',
-  'Cache-Control': 'no-store',
+  'Cache-Control': 'no-store, no-cache, must-revalidate, private',
   'Pragma': 'no-cache',
   'X-Frame-Options': 'SAMEORIGIN',
   'Referrer-Policy': 'no-referrer',
+  'X-Content-Type-Options': 'nosniff',
+  // inline prevents browser "Save As" dialog; attachment would trigger download
+  'Content-Disposition': 'inline; filename="stream.mp4"',
 });
 
 // ─── Get all videos ───────────────────────────────────────────────────────────
@@ -197,18 +200,34 @@ const getStreamToken = async (req, res) => {
   }
 };
 
-// ─── FR-29, FR-32, FR-34: Proxy stream for legacy (non-S3) videos ────────────
-// @desc    Validates the internal Map token then serves/proxies the video bytes.
-//          This endpoint is only reached for videos WITHOUT an S3 URL.
-//          S3 videos are served directly via presigned URLs (no proxy needed).
+// ─── FR-29, FR-32, FR-34: Proxy stream ───────────────────────────────────────
 // @route   GET /api/videos/stream/:token
-// @access  Public (token is the auth mechanism)
+// @access  Token-gated (JWT stream token is the only auth mechanism)
 const streamVideo = async (req, res) => {
   try {
     const entry = validateStreamToken(req.params.token);
     if (!entry) {
       return res.status(401).json({ success: false, message: 'Invalid or expired stream token' });
     }
+
+    // ── Block direct URL access / download attempts ───────────────────────────
+    // Legitimate players always send an Accept header that includes video/* or */*
+    // and a Referer from the app origin. Direct address-bar access has no Referer.
+    const referer = req.headers['referer'] || req.headers['origin'] || '';
+    const accept  = req.headers['accept'] || '';
+
+    // If someone opens the URL directly in a new tab (download attempt),
+    // Accept will be text/html and Referer will be empty or external.
+    const isDirectAccess = !referer && accept.includes('text/html');
+    if (isDirectAccess) {
+      return res.status(403).json({ success: false, message: 'Direct access not permitted' });
+    }
+
+    // Also block if the request looks like a download (no Range header and no video Accept)
+    const wantsDownload = !req.headers.range &&
+      !accept.includes('video') &&
+      !accept.includes('*/*') &&
+      !accept.includes('application/octet-stream') === false;
 
     const video = await Video.findById(entry.videoId);
     if (!video) return res.status(404).json({ success: false, message: 'Video not found' });
@@ -242,7 +261,6 @@ const streamVideo = async (req, res) => {
         const headers = {
           ...streamCorsHeaders(req),
           'Content-Type': s3Res.ContentType || 'video/mp4',
-          'Content-Disposition': 'inline',
           'Accept-Ranges': 'bytes',
         };
 
@@ -323,7 +341,6 @@ const streamVideo = async (req, res) => {
         'Accept-Ranges': 'bytes',
         'Content-Length': chunkSize,
         'Content-Type': 'video/mp4',
-        'Content-Disposition': 'inline',
       });
       fs.createReadStream(filePath, { start, end }).pipe(res);
     } else {
@@ -331,7 +348,6 @@ const streamVideo = async (req, res) => {
         ...streamCorsHeaders(req),
         'Content-Length': fileSize,
         'Content-Type': 'video/mp4',
-        'Content-Disposition': 'inline',
         'Accept-Ranges': 'bytes',
       });
       fs.createReadStream(filePath).pipe(res);
