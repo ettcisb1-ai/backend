@@ -22,6 +22,9 @@ router.post('/register', registerAdmin);
 router.post('/login', loginAdmin);
 
 // Protected routes (Admin only)
+
+
+
 router.get('/profile', protect, authorize('admin'), getAdminProfile);
 router.get('/dashboard', protect, authorize('admin'), getDashboardStats);
 router.get('/users', protect, authorize('admin'), getAllUsers);
