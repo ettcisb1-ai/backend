@@ -42,6 +42,7 @@ const allowedOrigins = [
   'http://localhost:3000',
   'https://lms-virid-seven.vercel.app',
   "https://lms-5at8mtcbf-ettc.vercel.app",
+  "https://ettc.info",
   // Add any other Vercel preview URLs here if needed
 ];
 
