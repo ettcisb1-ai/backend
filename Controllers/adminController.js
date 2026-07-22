@@ -127,15 +127,40 @@ const getAdminProfile = async (req, res) => {
   }
 };
 
-// @desc    Get all registered users
-// @route   GET /api/admin/users
+// @desc    Get all registered users (server-side paginated)
+// @route   GET /api/admin/users?page=1&limit=10&search=&status=
 // @access  Private
 const getAllUsers = async (req, res) => {
   try {
-    const users = await User.find({}).sort('-createdAt');
+    const page   = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit  = Math.max(1, Math.min(100, parseInt(req.query.limit) || 10));
+    const search = (req.query.search || '').trim();
+    const status = (req.query.status || '').trim();   // 'active' | 'inactive' | ''
+
+    // Build filter
+    const filter = {};
+    if (search) {
+      filter.$or = [
+        { name:  { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+      ];
+    }
+    if (status && status !== 'All') {
+      filter.status = status.toLowerCase();
+    }
+
+    const total = await User.countDocuments(filter);
+    const users = await User.find(filter)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit);
+
     return res.json({
       success: true,
-      count: users.length,
+      count:      users.length,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
       data: users,
     });
   } catch (error) {
