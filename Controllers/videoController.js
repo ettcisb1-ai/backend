@@ -34,18 +34,47 @@ const applySecurityHeaders = (res) => {
   });
 };
 
-// Adds CORS + security headers to a raw writeHead call (stream responses bypass Express CORS middleware)
+// Adds CORS + security headers to a raw writeHead call
+// (stream responses bypass Express CORS middleware, so we set headers manually)
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:3000',
+  'https://lms-virid-seven.vercel.app',
+  'https://lms-5at8mtcbf-ettc.vercel.app',
+  'https://ettc.info',
+  'https://www.ettc.info',
+];
+
+const resolveOriginHeader = (req) => {
+  // Use explicit Origin header first
+  const origin = req.headers['origin'];
+  if (origin) return ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+
+  // <video> range requests often omit Origin — fall back to Referer
+  const referer = req.headers['referer'] || '';
+  for (const allowed of ALLOWED_ORIGINS) {
+    if (referer.startsWith(allowed)) return allowed;
+  }
+
+  // Last resort — pick based on environment
+  const isDev = process.env.NODE_ENV !== 'production';
+  return isDev ? 'http://localhost:5173' : 'https://ettc.info';
+};
+
 const streamCorsHeaders = (req) => ({
-  'Access-Control-Allow-Origin': req.headers.origin || '*',
+  'Access-Control-Allow-Origin':      resolveOriginHeader(req),
   'Access-Control-Allow-Credentials': 'true',
-  'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges',
-  'Cache-Control': 'no-store, no-cache, must-revalidate, private',
-  'Pragma': 'no-cache',
-  'X-Frame-Options': 'SAMEORIGIN',
-  'Referrer-Policy': 'no-referrer',
-  'X-Content-Type-Options': 'nosniff',
-  // inline prevents browser "Save As" dialog; attachment would trigger download
-  'Content-Disposition': 'inline; filename="stream.mp4"',
+  'Access-Control-Allow-Methods':     'GET, HEAD, OPTIONS',
+  'Access-Control-Allow-Headers':     'Content-Type, Authorization, Range',
+  'Access-Control-Expose-Headers':    'Content-Length, Content-Range, Accept-Ranges',
+  'Vary':                             'Origin',
+  'Cache-Control':                    'no-store, no-cache, must-revalidate, private',
+  'Pragma':                           'no-cache',
+  'X-Frame-Options':                  'SAMEORIGIN',
+  'Referrer-Policy':                  'no-referrer',
+  'X-Content-Type-Options':           'nosniff',
+  'Content-Disposition':              'inline; filename="stream.mp4"',
 });
 
 // ─── Get all videos ───────────────────────────────────────────────────────────
@@ -201,33 +230,24 @@ const getStreamToken = async (req, res) => {
 };
 
 // ─── FR-29, FR-32, FR-34: Proxy stream ───────────────────────────────────────
-// @route   GET /api/videos/stream/:token
+// @route   GET|HEAD /api/videos/stream/:token
 // @access  Token-gated (JWT stream token is the only auth mechanism)
 const streamVideo = async (req, res) => {
+  const isHead = req.method === 'HEAD';
+
   try {
     const entry = validateStreamToken(req.params.token);
     if (!entry) {
       return res.status(401).json({ success: false, message: 'Invalid or expired stream token' });
     }
 
-    // ── Block direct URL access / download attempts ───────────────────────────
-    // Legitimate players always send an Accept header that includes video/* or */*
-    // and a Referer from the app origin. Direct address-bar access has no Referer.
+    // Block address-bar access only (not <video> element range requests)
     const referer = req.headers['referer'] || req.headers['origin'] || '';
     const accept  = req.headers['accept'] || '';
-
-    // If someone opens the URL directly in a new tab (download attempt),
-    // Accept will be text/html and Referer will be empty or external.
-    const isDirectAccess = !referer && accept.includes('text/html');
-    if (isDirectAccess) {
+    const isAddressBarAccess = !referer && accept.startsWith('text/html');
+    if (isAddressBarAccess) {
       return res.status(403).json({ success: false, message: 'Direct access not permitted' });
     }
-
-    // Also block if the request looks like a download (no Range header and no video Accept)
-    const wantsDownload = !req.headers.range &&
-      !accept.includes('video') &&
-      !accept.includes('*/*') &&
-      !accept.includes('application/octet-stream') === false;
 
     const video = await Video.findById(entry.videoId);
     if (!video) return res.status(404).json({ success: false, message: 'Video not found' });
@@ -239,31 +259,42 @@ const streamVideo = async (req, res) => {
     // ── S3-hosted video — stream via AWS SDK (authenticated, range-request aware) ──
     if (videoUrl && videoUrl.includes('amazonaws.com')) {
       try {
-        const { GetObjectCommand } = require('@aws-sdk/client-s3');
+        const { GetObjectCommand, HeadObjectCommand } = require('@aws-sdk/client-s3');
         const s3 = require('../config/s3');
 
-        let s3Key;
         const urlObj = new URL(videoUrl);
-        s3Key = urlObj.pathname.replace(/^\//, '');
+        const s3Key  = urlObj.pathname.replace(/^\//, '');
+
+        // HEAD request — return metadata headers only, no body
+        if (isHead) {
+          const headRes = await s3.send(new HeadObjectCommand({
+            Bucket: process.env.AWS_S3_BUCKET,
+            Key:    s3Key,
+          }));
+          const headers = {
+            ...streamCorsHeaders(req),
+            'Content-Type':   headRes.ContentType || 'video/mp4',
+            'Content-Length': headRes.ContentLength,
+            'Accept-Ranges':  'bytes',
+          };
+          res.writeHead(200, headers);
+          res.end();
+          return;
+        }
 
         const cmdParams = {
           Bucket: process.env.AWS_S3_BUCKET,
-          Key: s3Key,
+          Key:    s3Key,
         };
-
-        // Forward range header for seek support
-        if (req.headers.range) {
-          cmdParams.Range = req.headers.range;
-        }
+        if (req.headers.range) cmdParams.Range = req.headers.range;
 
         const s3Res = await s3.send(new GetObjectCommand(cmdParams));
 
         const headers = {
           ...streamCorsHeaders(req),
-          'Content-Type': s3Res.ContentType || 'video/mp4',
+          'Content-Type':  s3Res.ContentType || 'video/mp4',
           'Accept-Ranges': 'bytes',
         };
-
         if (s3Res.ContentLength) headers['Content-Length'] = s3Res.ContentLength;
         if (s3Res.ContentRange)  headers['Content-Range']  = s3Res.ContentRange;
 

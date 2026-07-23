@@ -18,9 +18,24 @@ const {
 const { protect, authorize } = require('../Middlewares/auth');
 
 // ── FR-29, FR-32, FR-34: Secure Stream endpoint ───────────────────────────────
-// Token is the auth mechanism — no user token required on this endpoint itself
-// (the stream token already encodes the user's identity and a 2-hour TTL)
-router.get('/stream/:token', streamVideo);
+// Token is the auth mechanism — no user token required on this endpoint itself.
+// Explicit OPTIONS handler so the browser preflight succeeds before the
+// <video> element sends its first range request.
+router.options('/stream/:token', (req, res) => {
+  const origin = req.headers['origin'] || 'https://ettc.info';
+  res.set({
+    'Access-Control-Allow-Origin':  origin,
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Range',
+    'Access-Control-Max-Age':       '86400',
+    'Vary':                         'Origin',
+  });
+  res.sendStatus(204);
+});
+
+router.get('/stream/:token',  streamVideo);
+router.head('/stream/:token', streamVideo);
 
 // Protected routes (available to authenticated users)
 router.get('/', protect, getVideos);
