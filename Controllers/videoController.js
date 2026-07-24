@@ -4,6 +4,22 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const jwt = require('jsonwebtoken');
+const s3 = require('../config/s3');
+const { GetObjectCommand } = require('@aws-sdk/client-s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+
+// ── Generate a presigned GET URL for any S3 object (thumbnails, etc.) ─────────
+const getPresignedThumbnailUrl = async (s3Url) => {
+  try {
+    if (!s3Url || !s3Url.includes('amazonaws.com')) return s3Url;
+    const urlObj = new URL(s3Url);
+    const s3Key  = urlObj.pathname.replace(/^\//, '');
+    const cmd    = new GetObjectCommand({ Bucket: process.env.AWS_S3_BUCKET, Key: s3Key });
+    return await getSignedUrl(s3, cmd, { expiresIn: 604800 }); // 7 days
+  } catch {
+    return s3Url; // fallback to original if signing fails
+  }
+};
 
 // ─── JWT-based stream tokens (stateless — works on Vercel serverless) ─────────
 // Token payload: { videoId, userId, iat, exp }
@@ -77,16 +93,48 @@ const streamCorsHeaders = (req) => ({
   'Content-Disposition':              'inline; filename="stream.mp4"',
 });
 
-// ─── Get all videos ───────────────────────────────────────────────────────────
-// @route   GET /api/videos
+// ─── Get all videos (paginated) ───────────────────────────────────────────────
+// @route   GET /api/videos?page=1&limit=12&search=keyword
 // @access  Private/Admin
 const getVideos = async (req, res) => {
   try {
-    const videos = await Video.find({})
-      .populate('course', 'title')
-      .populate('category', 'name')
-      .select('-publicId -videoUrl'); // never expose storage identifiers to clients
-    return res.status(200).json({ success: true, count: videos.length, data: videos });
+    const page   = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit  = Math.max(1, parseInt(req.query.limit) || 12);
+    const search = req.query.search?.trim() || '';
+    const skip   = (page - 1) * limit;
+
+    const filter = search ? { title: { $regex: search, $options: 'i' } } : {};
+
+    const [videos, total] = await Promise.all([
+      Video.find(filter)
+        .populate('course', 'title')
+        .populate('category', 'name')
+        .select('-publicId -videoUrl')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      Video.countDocuments(filter),
+    ]);
+
+    // Generate presigned GET URLs for thumbnails so private S3 objects are viewable
+    const videosWithThumbs = await Promise.all(
+      videos.map(async (v) => {
+        const obj = v.toObject();
+        if (obj.thumbnail && obj.thumbnail.includes('amazonaws.com')) {
+          obj.thumbnail = await getPresignedThumbnailUrl(obj.thumbnail);
+        }
+        return obj;
+      })
+    );
+
+    return res.status(200).json({
+      success: true,
+      count: videosWithThumbs.length,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+      data: videosWithThumbs,
+    });
   } catch (error) {
     console.error('Error in getVideos:', error);
     return res.status(500).json({ success: false, message: error.message });
@@ -101,9 +149,15 @@ const getVideoById = async (req, res) => {
     const video = await Video.findById(req.params.id)
       .populate('course', 'title')
       .populate('category', 'name')
-      .select('-publicId -videoUrl'); // hide storage fields
+      .select('-publicId -videoUrl');
     if (!video) return res.status(404).json({ success: false, message: 'Video not found' });
-    return res.status(200).json({ success: true, data: video });
+
+    const obj = video.toObject();
+    if (obj.thumbnail && obj.thumbnail.includes('amazonaws.com')) {
+      obj.thumbnail = await getPresignedThumbnailUrl(obj.thumbnail);
+    }
+
+    return res.status(200).json({ success: true, data: obj });
   } catch (error) {
     console.error('Error in getVideoById:', error);
     return res.status(500).json({ success: false, message: error.message });

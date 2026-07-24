@@ -13,7 +13,7 @@ const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 // @access  Private/Admin only
 router.get('/s3-signature', protect, authorize('admin'), async (req, res) => {
   try {
-    const { fileName, contentType } = req.query;
+    const { fileName, contentType, folder } = req.query;
 
     if (!fileName || !contentType) {
       return res.status(400).json({
@@ -27,21 +27,25 @@ router.get('/s3-signature', protect, authorize('admin'), async (req, res) => {
       return res.status(500).json({ success: false, message: 'AWS_S3_BUCKET is not configured' });
     }
 
-    // Build a unique S3 key
-    const ext      = path.extname(fileName) || '.mp4';
-    const safeName = path.basename(fileName, ext).replace(/[^a-zA-Z0-9_-]/g, '_');
-    const s3Key    = `lms-videos/${Date.now()}_${safeName}${ext}`;
+    // Use folder param to separate thumbnails from videos
+    const isImage   = contentType.startsWith('image/');
+    const prefix    = folder || (isImage ? 'lms-thumbnails' : 'lms-videos');
+    const ext       = path.extname(fileName) || (isImage ? '.jpg' : '.mp4');
+    const safeName  = path.basename(fileName, ext).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const s3Key     = `${prefix}/${Date.now()}_${safeName}${ext}`;
 
-    // Presigned PUT URL — valid for 2 hours
-    const command = new PutObjectCommand({
+    // Build PutObject command
+    const cmdInput = {
       Bucket:      BUCKET,
       Key:         s3Key,
       ContentType: contentType,
-    });
+    };
+    // Note: public-read ACL removed — bucket policy handles thumbnail access
 
+    const command = new PutObjectCommand(cmdInput);
     const presignedUrl = await getSignedUrl(s3, command, { expiresIn: 7200 });
 
-    // Public URL (accessible once uploaded, assuming bucket allows public reads)
+    // Public URL
     const region    = process.env.AWS_REGION;
     const publicUrl = `https://${BUCKET}.s3.${region}.amazonaws.com/${s3Key}`;
 
