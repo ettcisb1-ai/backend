@@ -16,7 +16,7 @@ const systemSettingsSchema = new mongoose.Schema(
     },
     appName: {
       type: String,
-      default: 'LMS Portal',
+      default: 'ETTC',
     },
     logoText: {
       type: String,
@@ -24,7 +24,7 @@ const systemSettingsSchema = new mongoose.Schema(
     },
     logoName: {
       type: String,
-      default: 'LMS Portal Dashboard',
+      default: 'ETTC Dashboard',
     },
     activeTheme: {
       type: String,
