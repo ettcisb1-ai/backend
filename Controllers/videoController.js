@@ -249,20 +249,34 @@ const getStreamToken = async (req, res) => {
       });
     }
 
-    // ── Path A: S3-hosted video — proxy through backend token (avoids S3 CORS issues) ─
-    // We intentionally do NOT return a direct presigned S3 URL to the browser.
-    // Instead we use the same proxy token path so the browser only ever talks to
-    // our own backend (which has CORS configured). The backend fetches from S3.
+    // ── Path A: S3-hosted video — return a short-lived presigned GET URL ─────
+    // Direct S3 → browser streaming. Faster, no bandwidth limit on backend.
+    // URL expires in 2 hours so it can't be shared permanently.
     if (video.videoUrl && video.videoUrl.includes('amazonaws.com')) {
-      const token = generateStreamToken(video._id.toString(), req.user._id.toString());
-      return res.status(200).json({
-        success: true,
-        streamUrl: `/api/videos/stream/${token}`,
-        isHLS: false,
-        token,
-        expiresIn: 7200,
-        security: securityFlags,
-      });
+      try {
+        const { GetObjectCommand } = require('@aws-sdk/client-s3');
+        const { getSignedUrl }     = require('@aws-sdk/s3-request-presigner');
+        const s3Client             = require('../config/s3');
+
+        const urlObj = new URL(video.videoUrl);
+        const s3Key  = urlObj.pathname.replace(/^\//, '');
+
+        const cmd          = new GetObjectCommand({ Bucket: process.env.AWS_S3_BUCKET, Key: s3Key });
+        const presignedUrl = await getSignedUrl(s3Client, cmd, { expiresIn: 7200 });
+
+        return res.status(200).json({
+          success: true,
+          streamUrl: presignedUrl,   // absolute https:// URL — no proxying needed
+          isHLS: false,
+          isDrm: false,
+          isDASH: false,
+          expiresIn: 7200,
+          security: securityFlags,
+        });
+      } catch (s3Err) {
+        console.error('S3 presign error in getStreamToken:', s3Err);
+        // Fall through to proxy path
+      }
     }
 
     // ── Path B: Legacy local / externally-hosted video (proxy token) ──────────
