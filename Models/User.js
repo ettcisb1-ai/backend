@@ -63,7 +63,7 @@ const userSchema = new mongoose.Schema(
       deviceLimit: {
         type: Number,
         default: 2,
-        min: 1,
+        min: 0,
         max: 10,
       },
       activeSessions: {
