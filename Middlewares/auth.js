@@ -33,8 +33,8 @@ const protect = async (req, res, next) => {
         if (!user.isActive) {
           return res.status(403).json({ success: false, message: 'Your account is inactive.' });
         }
-        // Check if this token is still in activeSessions (force logout support)
-        if (user.activeSessions && user.activeSessions.length > 0) {
+        // Check if this token is still in activeSessions (force logout and device reset support)
+        if (Array.isArray(user.activeSessions)) {
           if (!user.activeSessions.includes(token)) {
             return res.status(401).json({ success: false, message: 'Session expired. Please log in again.' });
           }
