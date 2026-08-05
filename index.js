@@ -50,7 +50,14 @@ const corsOptions = {
   origin: (origin, callback) => {
     // Allow requests with no origin (e.g. mobile apps, curl, Postman)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
+    if (
+      allowedOrigins.includes(origin) ||
+      origin.endsWith('.hostingersite.com') ||
+      origin.endsWith('.vercel.app') ||
+      origin.endsWith('.ettc.info')
+    ) {
+      return callback(null, true);
+    }
     callback(new Error(`CORS: Origin '${origin}' is not allowed`));
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -67,7 +74,7 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Ensure database connection is ready before handling any request (critical for serverless / Vercel)
+// Ensure database connection is ready before handling any request (critical for serverless / Vercel / Hostinger)
 app.use(async (req, res, next) => {
   try {
     await connectDB();
@@ -130,11 +137,10 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Connect to MongoDB & Start Server
+// Connect to MongoDB & Start Server (Standalone mode only)
 const startServer = async () => {
-  if (process.env.VERCEL) {
-    // On Vercel, connection is handled via request middleware.
-    // No need to block file load or run schedulers.
+  if (process.env.VERCEL || process.env.VERCEL_ENV || process.env.NOW_REGION) {
+    // On serverless environments (Vercel), connections are handled lazily via request middleware.
     return;
   }
 
@@ -155,6 +161,9 @@ const startServer = async () => {
   }
 };
 
-startServer();
+// Only call app.listen() when executed directly, not when imported as a serverless module handler
+if (require.main === module) {
+  startServer();
+}
 
 module.exports = app;

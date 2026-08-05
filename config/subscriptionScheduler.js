@@ -102,7 +102,8 @@ const startSubscriptionScheduler = () => {
     checkSubscriptionExpiries();
 
     // Run every 12 hours (12 * 60 * 60 * 1000 ms)
-    setInterval(checkSubscriptionExpiries, 12 * 60 * 60 * 1000);
+    const timer = setInterval(checkSubscriptionExpiries, 12 * 60 * 60 * 1000);
+    if (timer && timer.unref) timer.unref();
     console.log('[Subscription Service] Subscription scheduler initialized (running every 12 hours).');
 };
 
