@@ -137,8 +137,9 @@ const loginUser = async (req, res) => {
         }
       });
 
-      // Enforce device limit
-      const limit = typeof user.deviceLimit === 'number' ? user.deviceLimit : 2;
+      // Enforce device limit safely handling numbers and string numbers
+      const rawLimit = user.deviceLimit;
+      const limit = (rawLimit !== undefined && rawLimit !== null && !isNaN(Number(rawLimit))) ? Number(rawLimit) : 2;
       if (limit === 0) {
         return res.status(403).json({
           success: false,

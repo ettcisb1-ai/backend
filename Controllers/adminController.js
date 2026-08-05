@@ -672,19 +672,20 @@ const setUserDeviceLimit = async (req, res) => {
     }
 
     const { deviceLimit } = req.body;
-    if (deviceLimit === undefined || deviceLimit < 0 || deviceLimit > 10) {
+    const numLimit = Number(deviceLimit);
+    if (deviceLimit === undefined || deviceLimit === null || isNaN(numLimit) || numLimit < 0 || numLimit > 10) {
       return res.status(400).json({ success: false, message: 'Device limit must be between 0 and 10' });
     }
 
-    user.deviceLimit = deviceLimit;
-    if (deviceLimit === 0) {
+    user.deviceLimit = numLimit;
+    if (numLimit === 0) {
       user.activeSessions = [];
     }
     await user.save();
 
     return res.json({
       success: true,
-      message: deviceLimit === 0 ? 'Allowed devices reset to 0' : `Device limit set to ${deviceLimit}`,
+      message: numLimit === 0 ? 'Allowed devices reset to 0' : `Device limit set to ${numLimit}`,
       data: { deviceLimit: user.deviceLimit }
     });
   } catch (error) {
