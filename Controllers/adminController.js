@@ -671,14 +671,14 @@ const setUserDeviceLimit = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    const { deviceLimit } = req.body;
+    const { deviceLimit, clearSessions } = req.body;
     const numLimit = Number(deviceLimit);
     if (deviceLimit === undefined || deviceLimit === null || isNaN(numLimit) || numLimit < 0 || numLimit > 10) {
       return res.status(400).json({ success: false, message: 'Device limit must be between 0 and 10' });
     }
 
     user.deviceLimit = numLimit;
-    if (numLimit === 0) {
+    if (numLimit === 0 || clearSessions) {
       user.activeSessions = [];
     }
     await user.save();
