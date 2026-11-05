@@ -21,9 +21,10 @@ const { protect, authorize } = require('../Middlewares/auth');
 // Rate limiters
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10,                   // max 10 login attempts per IP
+  max: 20,                   // max 20 login attempts per IP
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { trustProxy: false, xForwardedForHeader: false },
   message: { success: false, message: 'Too many login attempts. Please try again in 15 minutes.' },
 });
 

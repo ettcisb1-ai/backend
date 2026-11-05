@@ -15,25 +15,28 @@ const { protect } = require('../Middlewares/auth');
 // Rate limiters
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10,                   // max 10 login attempts per IP
+  max: 20,                   // max 20 login attempts per IP
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { trustProxy: false, xForwardedForHeader: false },
   message: { success: false, message: 'Too many login attempts. Please try again in 15 minutes.' },
 });
 
 const registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 5,                    // max 5 registrations per IP per hour
+  max: 10,                   // max 10 registrations per IP per hour
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { trustProxy: false, xForwardedForHeader: false },
   message: { success: false, message: 'Too many registration attempts. Please try again later.' },
 });
 
 const forgotPasswordLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 5,
+  max: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { trustProxy: false, xForwardedForHeader: false },
   message: { success: false, message: 'Too many password reset requests. Please try again later.' },
 });
 

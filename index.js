@@ -21,7 +21,11 @@ const reportsRoutes = require('./Routes/reportsRoute');
 // Initialize express app
 const app = express();
 
+// Trust reverse proxies (Hostinger, Nginx, Vercel, Cloudflare)
+app.set('trust proxy', 1);
+
 const path = require('path');
+const fs = require('fs');
 
 // ── Security Middleware ───────────────────────────────────────────────────────
 // Set secure HTTP headers (X-Content-Type-Options, X-XSS-Protection, HSTS, etc.)
@@ -29,24 +33,6 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' }, // Allow S3 video streams
   contentSecurityPolicy: false, // CSP managed by frontend
 }));
-
-// Rate limiters — applied before routes
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10,                   // max 10 attempts per IP per window
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, message: 'Too many login attempts. Please try again in 15 minutes.' },
-});
-
-const registerLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 5,                    // max 5 registrations per IP per hour
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, message: 'Too many registration attempts. Please try again later.' },
-});
-const fs = require('fs');
 
 // On Vercel (serverless) the filesystem is read-only — only /tmp is writable.
 // We skip local uploads dir creation in production; S3 handles storage.
@@ -165,9 +151,7 @@ app.use((err, req, res, next) => {
   const statusCode = err.statusCode || 500;
   res.status(statusCode).json({
     success: false,
-    message: statusCode === 500 && process.env.NODE_ENV === 'production'
-      ? 'An unexpected error occurred. Please contact support.'
-      : (err.message || 'Internal Server Error'),
+    message: err.message || 'Internal Server Error',
   });
 });
 
