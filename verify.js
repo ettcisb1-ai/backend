@@ -1,10 +1,10 @@
-require('dotenv').config({ path: 'c:/portal-lms/backend/.env' });
+require('dotenv').config();
 const mongoose = require('mongoose');
-const connectDB = require('c:/portal-lms/backend/config/db');
-const User = require('c:/portal-lms/backend/Models/User');
-const Course = require('c:/portal-lms/backend/Models/Course');
-const Categorie = require('c:/portal-lms/backend/Models/Categorie');
-const SubscriptionSettings = require('c:/portal-lms/backend/Models/Subscription');
+const connectDB = require('./config/db');
+const User = require('./Models/User');
+const Course = require('./Models/Course');
+const Categorie = require('./Models/Categorie');
+const SubscriptionSettings = require('./Models/Subscription');
 
 // Emulate checkCourseAccess logic
 const checkCourseAccessLocal = async (courseId, userId) => {

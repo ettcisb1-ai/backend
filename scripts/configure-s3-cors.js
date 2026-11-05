@@ -23,7 +23,7 @@ const corsConfiguration = {
         'https://ettc.info',
         'https://www.ettc.info'
       ],
-      ExposeHeaders: ['ETag'],
+      ExposeHeaders: ['ETag', 'Content-Range', 'Content-Length', 'Accept-Ranges'],
       MaxAgeSeconds: 3600
     }
   ]

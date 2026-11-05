@@ -148,4 +148,16 @@ userSchema.methods.getResetPasswordToken = function () {
   return resetToken;
 };
 
+// Check if account has exceeded its expiryDate
+userSchema.methods.isExpired = function () {
+  if (this.role === 'admin') return false;
+  if (!this.expiryDate || this.expiryDate === 'Perpetual') return false;
+
+  const expiry = new Date(this.expiryDate);
+  if (isNaN(expiry.getTime())) return false;
+
+  expiry.setHours(23, 59, 59, 999);
+  return new Date() > expiry;
+};
+
 module.exports = mongoose.model('User', userSchema);

@@ -1,7 +1,7 @@
-require('dotenv').config({ path: 'c:/portal-lms/backend/.env' });
+require('dotenv').config();
 const mongoose = require('mongoose');
-const connectDB = require('c:/portal-lms/backend/config/db');
-const Course = require('c:/portal-lms/backend/Models/Course');
+const connectDB = require('./config/db');
+const Course = require('./Models/Course');
 
 const run = async () => {
   try {

@@ -3,6 +3,7 @@ const Admin = require('../Models/Admin');
 const User = require('../Models/User');
 const Course = require('../Models/Course');
 const Video = require('../Models/Video');
+const { formatDate, calculateTwoMonthsExpiry } = require('../utils/dateHelper');
 
 // Helper function to generate JWT
 const generateToken = (id, role) => {
@@ -185,20 +186,16 @@ const adminCreateUser = async (req, res) => {
       return res.status(400).json({ success: false, message: 'User already exists with this email' });
     }
 
-    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '192.168.10.45';
+    const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '192.168.10.45';
+    const clientIp = typeof rawIp === 'string' ? rawIp.split(',')[0].trim() : rawIp;
 
-    let expiryDate = '';
-    let purchaseDate = '';
-    if (subscription === 'Pro (Paid)') {
-      const oneMonthFromNow = new Date();
-      oneMonthFromNow.setMonth(oneMonthFromNow.getMonth() + 1);
-      expiryDate = oneMonthFromNow.toLocaleDateString('en-US', {
-        month: 'short', day: 'numeric', year: 'numeric',
-      });
-      purchaseDate = new Date().toLocaleDateString('en-US', {
-        month: 'short', day: 'numeric', year: 'numeric',
-      });
-    }
+    // Save registration date (today) and 2-month access expiry date
+    const purchaseDate = req.body.purchaseDate ? formatDate(req.body.purchaseDate) : formatDate(new Date());
+    const expiryDate = req.body.expiryDate ? formatDate(req.body.expiryDate) : calculateTwoMonthsExpiry(new Date());
+
+
+
+
 
     const user = await User.create({
       name,
@@ -239,7 +236,7 @@ const adminUpdateUser = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    const { name, email, phoneNumber, role, status, subscription, password, courses } = req.body;
+    const { name, email, phoneNumber, role, status, subscription, password, courses, expiryDate, purchaseDate } = req.body;
 
     if (name) user.name = name;
     if (email) {
@@ -252,34 +249,35 @@ const adminUpdateUser = async (req, res) => {
     if (phoneNumber) user.phoneNumber = phoneNumber;
     if (role) user.role = role;
     if (status !== undefined && status !== null && status !== '') {
-      // Map frontend display value to DB enum
       const statusMap = { 'Active': 'active', 'Inactive': 'inactive' };
       const dbStatus = statusMap[status] || status.toLowerCase();
       user.status = dbStatus;
-      // Keep isActive in sync — only 'active' allows login
       user.isActive = (dbStatus === 'active');
-    }    if (subscription) {
+    }
+
+    if (subscription) {
       user.subscribed = (subscription === 'Pro (Paid)');
       user.planType = (subscription === 'Pro (Paid)' ? 'Pro' : 'Free');
-      // When manually granting Pro access, set a 1-month expiry if none is set or it's in the past
-      if (subscription === 'Pro (Paid)') {
-        const currentExpiry = user.expiryDate ? new Date(user.expiryDate) : null;
-        const needsExpiry = !currentExpiry || isNaN(currentExpiry) || currentExpiry < new Date();
-        if (needsExpiry) {
-          const oneMonthFromNow = new Date();
-          oneMonthFromNow.setMonth(oneMonthFromNow.getMonth() + 1);
-          user.expiryDate = oneMonthFromNow.toLocaleDateString('en-US', {
-            month: 'short', day: 'numeric', year: 'numeric',
-          });
-          user.purchaseDate = new Date().toLocaleDateString('en-US', {
-            month: 'short', day: 'numeric', year: 'numeric',
-          });
-        }
-      } else {
-        // Downgrading to Free — clear subscription dates
-        user.expiryDate = '';
-        user.purchaseDate = '';
+    }
+
+    if (expiryDate !== undefined && expiryDate !== '') {
+      user.expiryDate = formatDate(expiryDate);
+    } else if (expiryDate === '') {
+      user.expiryDate = '';
+    } else if (subscription === 'Pro (Paid)') {
+      const currentExpiry = user.expiryDate ? new Date(user.expiryDate) : null;
+      const needsExpiry = !currentExpiry || isNaN(currentExpiry) || currentExpiry < new Date();
+      if (needsExpiry) {
+        user.expiryDate = calculateTwoMonthsExpiry(new Date());
       }
+    }
+
+    if (purchaseDate !== undefined && purchaseDate !== '') {
+      user.purchaseDate = formatDate(purchaseDate);
+    } else if (purchaseDate === '') {
+      user.purchaseDate = '';
+    } else if (subscription === 'Pro (Paid)' && !user.purchaseDate) {
+      user.purchaseDate = formatDate(new Date());
     }
     if (password) user.password = password;
     let newlyAddedCourses = [];

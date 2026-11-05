@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../Models/User');
 const Admin = require('../Models/Admin');
+const { isAccountExpired } = require('../utils/dateHelper');
 
 // Protect route - verify token and attach user/admin to request
 const protect = async (req, res, next) => {
@@ -32,6 +33,14 @@ const protect = async (req, res, next) => {
         }
         if (!user.isActive) {
           return res.status(403).json({ success: false, message: 'Your account is inactive.' });
+        }
+        if (isAccountExpired(user.expiryDate, user.role)) {
+          return res.status(403).json({
+            success: false,
+            message: `Your login credentials have expired on ${user.expiryDate}. Please contact support or your administrator.`,
+            isExpired: true,
+            expiryDate: user.expiryDate,
+          });
         }
         // Check if this token is still in activeSessions (force logout and device reset support)
         if (Array.isArray(user.activeSessions)) {

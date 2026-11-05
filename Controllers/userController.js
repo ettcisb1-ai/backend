@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../Models/User');
 const Admin = require('../Models/Admin');
+const { formatDate, calculateTwoMonthsExpiry, isAccountExpired } = require('../utils/dateHelper');
 
 // Helper function to generate JWT
 const generateToken = (id, role) => {
@@ -36,7 +37,8 @@ const registerUser = async (req, res) => {
     }
 
     // Capture client IP address and device from request headers
-    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '192.168.10.45';
+    const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '192.168.10.45';
+    const clientIp = typeof rawIp === 'string' ? rawIp.split(',')[0].trim() : rawIp;
     const userAgent = req.headers['user-agent'] || 'Unknown Device';
 
     // Create user
@@ -53,8 +55,8 @@ const registerUser = async (req, res) => {
       subscribed: req.body.subscribed !== undefined ? req.body.subscribed : false,
       planType: req.body.planType || 'Free',
       currency: req.body.currency || 'PKR',
-      purchaseDate: req.body.purchaseDate || 'May 10, 2026',
-      expiryDate: req.body.expiryDate || 'June 10, 2026',
+      purchaseDate: req.body.purchaseDate || formatDate(new Date()),
+      expiryDate: req.body.expiryDate || calculateTwoMonthsExpiry(new Date()),
       activityLog: [
         { action: 'Account Created', ip: clientIp, device: userAgent, time: new Date() }
       ]
@@ -110,8 +112,19 @@ const loginUser = async (req, res) => {
         return res.status(403).json({ success: false, message: 'Your account is inactive.' });
       }
 
+      // Check 2-month account expiration
+      if (isAccountExpired(user.expiryDate, user.role)) {
+        return res.status(403).json({
+          success: false,
+          message: `Your login credentials have expired on ${user.expiryDate}. Please contact support or your administrator to renew your access.`,
+          isExpired: true,
+          expiryDate: user.expiryDate,
+        });
+      }
+
       // Capture client IP address from the request
-      const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '192.168.10.45';
+      const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '192.168.10.45';
+    const clientIp = typeof rawIp === 'string' ? rawIp.split(',')[0].trim() : rawIp;
 
       // Enforce IP Lock restriction
       if (user.ipLockEnabled && user.registeredIp && clientIp !== user.registeredIp) {
