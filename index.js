@@ -3,7 +3,6 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const mongoSanitize = require('express-mongo-sanitize');
 const connectDB = require('./config/db');
 const userRoutes = require('./Routes/userRoute');
 const adminRoutes = require('./Routes/adminRoute');
@@ -90,8 +89,24 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Sanitize request data against NoSQL injection (strips $ and . from req.body, params, query)
-app.use(mongoSanitize());
+// Sanitize request data against NoSQL injection (Express 5 safe in-place sanitization)
+const sanitizeObject = (obj) => {
+  if (!obj || typeof obj !== 'object') return;
+  for (const key of Object.keys(obj)) {
+    if (key.startsWith('$') || key.includes('.')) {
+      delete obj[key];
+    } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+      sanitizeObject(obj[key]);
+    }
+  }
+};
+
+app.use((req, res, next) => {
+  if (req.body) sanitizeObject(req.body);
+  if (req.params) sanitizeObject(req.params);
+  if (req.query) sanitizeObject(req.query);
+  next();
+});
 
 // Ensure database connection is ready before handling any request (critical for serverless / Vercel / Hostinger)
 app.use(async (req, res, next) => {
