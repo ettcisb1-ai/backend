@@ -133,8 +133,8 @@ const getAdminProfile = async (req, res) => {
 // @access  Private
 const getAllUsers = async (req, res) => {
   try {
-    const page   = Math.max(1, parseInt(req.query.page)  || 1);
-    const limit  = Math.max(1, Math.min(100, parseInt(req.query.limit) || 10));
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 10));
     const search = (req.query.search || '').trim();
     const status = (req.query.status || '').trim();   // 'active' | 'inactive' | ''
 
@@ -142,7 +142,7 @@ const getAllUsers = async (req, res) => {
     const filter = {};
     if (search) {
       filter.$or = [
-        { name:  { $regex: search, $options: 'i' } },
+        { name: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
       ];
     }
@@ -158,7 +158,7 @@ const getAllUsers = async (req, res) => {
 
     return res.json({
       success: true,
-      count:      users.length,
+      count: users.length,
       total,
       page,
       totalPages: Math.ceil(total / limit),
@@ -295,7 +295,7 @@ const adminUpdateUser = async (req, res) => {
         const mongoose = require('mongoose');
         const validIds = newlyAddedCourses.filter(id => mongoose.Types.ObjectId.isValid(id));
         const coursesInfo = await Course.find({ _id: { $in: validIds } }).select('title');
-        
+
         const notificationDocs = coursesInfo.map(course => ({
           user: user._id,
           title: 'New Course Assigned',
@@ -304,7 +304,7 @@ const adminUpdateUser = async (req, res) => {
           course: course._id,
           audience: 'all',
         }));
-        
+
         await Notification.insertMany(notificationDocs);
       } catch (notifErr) {
         console.error('Error sending course assignment notifications in adminUpdateUser:', notifErr);
@@ -602,7 +602,7 @@ const assignCoursesToUser = async (req, res) => {
       try {
         const Notification = require('../Models/Notification');
         const newlyAssignedCourses = await Course.find({ _id: { $in: added } }).select('title');
-        
+
         const notificationDocs = newlyAssignedCourses.map(course => ({
           user: user._id,
           title: 'New Course Assigned',
@@ -611,7 +611,7 @@ const assignCoursesToUser = async (req, res) => {
           course: course._id,
           audience: 'all',
         }));
-        
+
         await Notification.insertMany(notificationDocs);
       } catch (notifErr) {
         console.error('Error sending course assignment notifications in assignCoursesToUser:', notifErr);
@@ -707,3 +707,4 @@ module.exports = {
   setUserDeviceLimit,
   forceLogoutUser,
 };
+//update security
