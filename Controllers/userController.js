@@ -17,11 +17,22 @@ const generateToken = (id, role) => {
 // @access  Public
 const registerUser = async (req, res) => {
   try {
-    const { name, email, phoneNumber, password, role, profilePicture } = req.body;
+    const { name, email, phoneNumber, password, profilePicture } = req.body;
 
-    // Check if fields are provided
+    // Input validation
     if (!name || !email || !phoneNumber || !password) {
       return res.status(400).json({ success: false, message: 'Please provide name, email, phone number and password' });
+    }
+
+    // Email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      return res.status(400).json({ success: false, message: 'Please provide a valid email address' });
+    }
+
+    // Password strength: minimum 6 characters
+    if (password.length < 6) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long' });
     }
 
     // Check if user already exists in User collection
@@ -55,8 +66,8 @@ const registerUser = async (req, res) => {
       subscribed: req.body.subscribed !== undefined ? req.body.subscribed : false,
       planType: req.body.planType || 'Free',
       currency: req.body.currency || 'PKR',
-      purchaseDate: req.body.purchaseDate || formatDate(new Date()),
-      expiryDate: req.body.expiryDate || calculateTwoMonthsExpiry(new Date()),
+      purchaseDate: formatDate(new Date()),           // Always server-set; clients cannot override
+      expiryDate: calculateTwoMonthsExpiry(new Date()), // Always server-set; clients cannot override
       activityLog: [
         { action: 'Account Created', ip: clientIp, device: userAgent, time: new Date() }
       ]
@@ -89,7 +100,8 @@ const registerUser = async (req, res) => {
     }
   } catch (error) {
     console.error('Error in registerUser:', error);
-    return res.status(500).json({ success: false, message: error.message });
+    console.error('Error:', error.stack);
+    return res.status(500).json({ success: false, message: 'Server error. Please try again later.' });
   }
 };
 
@@ -212,7 +224,8 @@ const loginUser = async (req, res) => {
     }
   } catch (error) {
     console.error('Error in loginUser:', error);
-    return res.status(500).json({ success: false, message: error.message });
+    console.error('Error:', error.stack);
+    return res.status(500).json({ success: false, message: 'Server error. Please try again later.' });
   }
 };
 
@@ -251,7 +264,8 @@ const getUserProfile = async (req, res) => {
     }
   } catch (error) {
     console.error('Error in getUserProfile:', error);
-    return res.status(500).json({ success: false, message: error.message });
+    console.error('Error:', error.stack);
+    return res.status(500).json({ success: false, message: 'Server error. Please try again later.' });
   }
 };
 
@@ -339,7 +353,8 @@ const updateUserProfile = async (req, res) => {
     });
   } catch (error) {
     console.error('Error in updateUserProfile:', error);
-    return res.status(500).json({ success: false, message: error.message });
+    console.error('Error:', error.stack);
+    return res.status(500).json({ success: false, message: 'Server error. Please try again later.' });
   }
 };
 
@@ -375,7 +390,8 @@ const forgotPassword = async (req, res) => {
     });
   } catch (error) {
     console.error('Error in forgotPassword:', error);
-    return res.status(500).json({ success: false, message: error.message });
+    console.error('Error:', error.stack);
+    return res.status(500).json({ success: false, message: 'Server error. Please try again later.' });
   }
 };
 
@@ -413,7 +429,8 @@ const resetPassword = async (req, res) => {
     });
   } catch (error) {
     console.error('Error in resetPassword:', error);
-    return res.status(500).json({ success: false, message: error.message });
+    console.error('Error:', error.stack);
+    return res.status(500).json({ success: false, message: 'Server error. Please try again later.' });
   }
 };
 
@@ -431,7 +448,8 @@ const logoutUser = async (req, res) => {
     return res.json({ success: true, message: 'Logged out successfully' });
   } catch (error) {
     console.error('Error in logoutUser:', error);
-    return res.status(500).json({ success: false, message: error.message });
+    console.error('Error:', error.stack);
+    return res.status(500).json({ success: false, message: 'Server error. Please try again later.' });
   }
 };
 

@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 const {
   registerAdmin,
   loginAdmin,
@@ -17,14 +18,35 @@ const {
 } = require('../Controllers/adminController');
 const { protect, authorize } = require('../Middlewares/auth');
 
+// Rate limiters
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,                   // max 10 login attempts per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many login attempts. Please try again in 15 minutes.' },
+});
+
+// ── Admin Register — Protected by secret key ──────────────────────────────────
+// CRITICAL: This route is NOT publicly open.
+// Caller must pass the correct ADMIN_REGISTRATION_SECRET in the request body.
+// In production: set ADMIN_REGISTRATION_SECRET as a strong random env variable.
+const adminRegisterGuard = (req, res, next) => {
+  const secret = process.env.ADMIN_REGISTRATION_SECRET;
+  if (!secret || req.body.registrationSecret !== secret) {
+    return res.status(403).json({
+      success: false,
+      message: 'Admin registration is restricted. Invalid or missing registration secret.',
+    });
+  }
+  next();
+};
+
 // Public routes
-router.post('/register', registerAdmin);
-router.post('/login', loginAdmin);
+router.post('/register', adminRegisterGuard, registerAdmin); // Guarded by secret
+router.post('/login', loginLimiter, loginAdmin);
 
 // Protected routes (Admin only)
-
-
-
 router.get('/profile', protect, authorize('admin'), getAdminProfile);
 router.get('/dashboard', protect, authorize('admin'), getDashboardStats);
 router.get('/users', protect, authorize('admin'), getAllUsers);

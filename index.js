@@ -1,6 +1,9 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const mongoSanitize = require('express-mongo-sanitize');
 const connectDB = require('./config/db');
 const userRoutes = require('./Routes/userRoute');
 const adminRoutes = require('./Routes/adminRoute');
@@ -19,6 +22,30 @@ const reportsRoutes = require('./Routes/reportsRoute');
 const app = express();
 
 const path = require('path');
+
+// ── Security Middleware ───────────────────────────────────────────────────────
+// Set secure HTTP headers (X-Content-Type-Options, X-XSS-Protection, HSTS, etc.)
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' }, // Allow S3 video streams
+  contentSecurityPolicy: false, // CSP managed by frontend
+}));
+
+// Rate limiters — applied before routes
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,                   // max 10 attempts per IP per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many login attempts. Please try again in 15 minutes.' },
+});
+
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,                    // max 5 registrations per IP per hour
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many registration attempts. Please try again later.' },
+});
 const fs = require('fs');
 
 // On Vercel (serverless) the filesystem is read-only — only /tmp is writable.
@@ -77,6 +104,9 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Sanitize request data against NoSQL injection (strips $ and . from req.body, params, query)
+app.use(mongoSanitize());
+
 // Ensure database connection is ready before handling any request (critical for serverless / Vercel / Hostinger)
 app.use(async (req, res, next) => {
   try {
@@ -106,7 +136,7 @@ app.get('/api/test', (req, res) => {
   });
 });
 
-// Mounting API Routes
+// Mounting API Routes (rate limiters applied to login/register endpoints)
 app.use('/api/users', userRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/categories', categorieRoutes);
@@ -130,13 +160,14 @@ app.use((req, res, next) => {
 
 // Global Error Handler Middleware
 app.use((err, req, res, next) => {
-  console.error('Unhandled Error:', err.stack);
+  console.error('Unhandled Error:', err.stack || err);
 
   const statusCode = err.statusCode || 500;
   res.status(statusCode).json({
     success: false,
-    message: err.message || 'Internal Server Error',
-    stack: process.env.NODE_ENV === 'production' ? null : err.stack,
+    message: statusCode === 500 && process.env.NODE_ENV === 'production'
+      ? 'An unexpected error occurred. Please contact support.'
+      : (err.message || 'Internal Server Error'),
   });
 });
 
