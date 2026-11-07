@@ -19,10 +19,10 @@ const notificationSchema = new mongoose.Schema(
             required: [true, 'Please provide a notification message'],
             trim: true,
         },
-        // FR-43: new_content | FR-44: subscription_expiry | FR-45: broadcast
+        // FR-43: new_content | FR-44: subscription_expiry | FR-45: broadcast | course_removed | course_access
         type: {
             type: String,
-            enum: ['new_content', 'subscription_expiry', 'broadcast'],
+            enum: ['new_content', 'subscription_expiry', 'broadcast', 'course_removed', 'course_access'],
             required: true,
         },
         // For new_content notifications — which course triggered it

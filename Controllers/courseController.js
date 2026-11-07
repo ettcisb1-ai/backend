@@ -4,6 +4,8 @@ const User = require('../Models/User');
 const Video = require('../Models/Video');
 const SubscriptionSettings = require('../Models/Subscription');
 const mongoose = require('mongoose');
+const Progress = require('../Models/Progress');
+const Notification = require('../Models/Notification');
 
 // ─── Helper: resolve or create a category ────────────────────────────────────
 const resolveCategory = async (category) => {
@@ -420,7 +422,199 @@ const deleteCourse = async (req, res) => {
   }
 };
 
+
+// @desc    Get all students enrolled in a specific course
+// @route   GET /api/courses/:id/students
+// @access  Private/Admin
+const getCourseStudents = async (req, res) => {
+  try {
+    const courseId = req.params.id;
+    const course = await Course.findById(courseId).select('_id title thumbnail category difficulty price studentsCount');
+    if (!course) {
+      return res.status(404).json({ success: false, message: 'Course not found' });
+    }
+
+    // A user has courses stored in `user.courses` as array of course ID strings
+    const students = await User.find({
+      role: 'user',
+      courses: { $in: [courseId, courseId.toString()] }
+    })
+      .select('_id name email phoneNumber status isActive planType subscribed purchaseDate expiryDate activityLog createdAt')
+      .lean();
+
+    // Fetch progress for all these students in this course
+    const studentIds = students.map(s => s._id);
+    const progressList = await Progress.find({
+      course: courseId,
+      user: { $in: studentIds }
+    }).lean();
+
+    const progressMap = {};
+    progressList.forEach(p => {
+      progressMap[p.user.toString()] = {
+        percentageComplete: p.percentageComplete || 0,
+        completedVideos: p.completedVideos || 0,
+        totalVideos: p.totalVideos || 0,
+        status: p.status || 'not_started',
+        lastWatchedAt: p.lastWatchedAt || null,
+      };
+    });
+
+    const enrichedStudents = students.map(s => {
+      const prog = progressMap[s._id.toString()] || {
+        percentageComplete: 0,
+        completedVideos: 0,
+        totalVideos: 0,
+        status: 'not_started',
+        lastWatchedAt: null,
+      };
+
+      return {
+        _id: s._id,
+        name: s.name,
+        email: s.email,
+        phoneNumber: s.phoneNumber || '',
+        status: s.status || (s.isActive ? 'active' : 'inactive'),
+        isActive: s.isActive !== false,
+        planType: s.planType || 'Free',
+        subscribed: !!s.subscribed,
+        registeredDate: s.purchaseDate || (s.createdAt ? s.createdAt.toISOString().split('T')[0] : '—'),
+        expiryDate: s.expiryDate || '',
+        progress: prog,
+      };
+    });
+
+    // Keep studentsCount on Course in sync
+    if (course.studentsCount !== enrichedStudents.length) {
+      await Course.findByIdAndUpdate(courseId, { studentsCount: enrichedStudents.length });
+      course.studentsCount = enrichedStudents.length;
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        course: {
+          _id: course._id,
+          title: course.title,
+          thumbnail: course.thumbnail,
+          studentsCount: enrichedStudents.length,
+        },
+        total: enrichedStudents.length,
+        students: enrichedStudents,
+      },
+    });
+  } catch (error) {
+    console.error('Error in getCourseStudents:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Enroll a student into a course
+// @route   POST /api/courses/:id/students/enroll
+// @access  Private/Admin
+const enrollStudentInCourse = async (req, res) => {
+  try {
+    const courseId = req.params.id;
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'Please provide userId to enroll' });
+    }
+
+    const course = await Course.findById(courseId);
+    if (!course) {
+      return res.status(404).json({ success: false, message: 'Course not found' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const userCourses = (user.courses || []).map(c => c.toString());
+    if (!userCourses.includes(courseId.toString())) {
+      userCourses.push(courseId.toString());
+      user.courses = userCourses;
+      await user.save();
+      await Course.findByIdAndUpdate(courseId, { $inc: { studentsCount: 1 } });
+
+      // Send notification to the student
+      try {
+        await Notification.create({
+          user: user._id,
+          title: 'New Course Assigned!',
+          message: `You have been enrolled in "${course.title}". Start watching the lectures from your dashboard.`,
+          type: 'new_content',
+          course: course._id,
+        });
+      } catch (notifErr) {
+        console.error('Failed to create enroll notification:', notifErr);
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `${user.name} has been enrolled in ${course.title}`,
+    });
+  } catch (error) {
+    console.error('Error in enrollStudentInCourse:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Unenroll a student from a course
+// @route   DELETE /api/courses/:id/students/:userId
+// @access  Private/Admin
+const unenrollStudentFromCourse = async (req, res) => {
+  try {
+    const { id: courseId, userId } = req.params;
+
+    const course = await Course.findById(courseId);
+    if (!course) {
+      return res.status(404).json({ success: false, message: 'Course not found' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const userCourses = (user.courses || []).map(c => c.toString());
+    if (userCourses.includes(courseId.toString())) {
+      user.courses = userCourses.filter(c => c !== courseId.toString());
+      await user.save();
+      await Course.findByIdAndUpdate(courseId, {
+        $inc: { studentsCount: -1 }
+      });
+
+      // Send removal notification to the student
+      try {
+        await Notification.create({
+          user: user._id,
+          title: 'Course Access Removed',
+          message: `Your access to the course "${course.title}" has been removed by the administrator. Contact support if you need assistance.`,
+          type: 'course_removed',
+          course: course._id,
+        });
+      } catch (notifErr) {
+        console.error('Failed to create unenroll notification:', notifErr);
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `${user.name} has been removed from ${course.title}`,
+    });
+  } catch (error) {
+    console.error('Error in unenrollStudentFromCourse:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
+  getCourseStudents,
+  enrollStudentInCourse,
+  unenrollStudentFromCourse,
   getCourses,
   getCourseById,
   checkCourseAccess,

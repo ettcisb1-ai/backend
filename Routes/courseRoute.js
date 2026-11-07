@@ -9,6 +9,9 @@ const {
   updateCourse,
   reorderCourse,
   deleteCourse,
+  getCourseStudents,
+  enrollStudentInCourse,
+  unenrollStudentFromCourse,
 } = require('../Controllers/courseController');
 const { protect, authorize } = require('../Middlewares/auth');
 
@@ -25,6 +28,11 @@ router.get('/:id/access', protect, checkCourseAccess);
 
 // FR-26: Reorder modules/lectures within a course
 router.patch('/:id/reorder', protect, authorize('admin'), reorderCourse);
+
+// ── Admin: Enrolled Students Management per course ────────────────────────────
+router.get('/:id/students', protect, authorize('admin'), getCourseStudents);
+router.post('/:id/students/enroll', protect, authorize('admin'), enrollStudentInCourse);
+router.delete('/:id/students/:userId', protect, authorize('admin'), unenrollStudentFromCourse);
 
 // ── Wildcard param route — must be LAST among GET routes ──────────────────────
 router.get('/:id', getCourseById);

@@ -269,7 +269,81 @@ const getAdminNotificationHistory = async (req, res) => {
     }
 };
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  USER: Delete a single notification
+//  @route   DELETE /api/notifications/:id
+//  @access  Private / User
+// ─────────────────────────────────────────────────────────────────────────────
+const deleteNotification = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const notification = await Notification.findOneAndDelete({
+            _id: id,
+            user: req.user._id,
+        });
+
+        if (!notification) {
+            return res.status(404).json({
+                success: false,
+                message: 'Notification not found or unauthorized',
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: 'Notification deleted successfully',
+        });
+    } catch (error) {
+        console.error('deleteNotification error:', error);
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  USER: Clear all notifications for logged-in user
+//  @route   DELETE /api/notifications/clear-all
+//  @access  Private / User
+// ─────────────────────────────────────────────────────────────────────────────
+const clearAllNotifications = async (req, res) => {
+    try {
+        await Notification.deleteMany({ user: req.user._id });
+        return res.status(200).json({
+            success: true,
+            message: 'All notifications cleared successfully',
+        });
+    } catch (error) {
+        console.error('clearAllNotifications error:', error);
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ADMIN: Delete notification record from log
+//  @route   DELETE /api/notifications/admin/:id
+//  @access  Private / Admin
+// ─────────────────────────────────────────────────────────────────────────────
+const adminDeleteNotification = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const deleted = await Notification.findByIdAndDelete(id);
+        if (!deleted) {
+            return res.status(404).json({ success: false, message: 'Notification not found' });
+        }
+        return res.status(200).json({
+            success: true,
+            message: 'Notification deleted from log',
+        });
+    } catch (error) {
+        console.error('adminDeleteNotification error:', error);
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 module.exports = {
+    deleteNotification,
+    clearAllNotifications,
+    adminDeleteNotification,
     notifyNewContent,
     notifySubscriptionExpiry,
     broadcastNotification,

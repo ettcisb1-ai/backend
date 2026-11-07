@@ -6,6 +6,9 @@ const {
     broadcastNotification,
     getMyNotifications,
     markAsRead,
+    deleteNotification,
+    clearAllNotifications,
+    adminDeleteNotification,
     getAdminNotificationHistory,
 } = require('../Controllers/notificationController');
 const { protect, authorize } = require('../Middlewares/auth');
@@ -17,9 +20,14 @@ router.get('/me', protect, getMyNotifications);
 // Mark notifications as read
 router.patch('/read', protect, markAsRead);
 
+// Delete notification(s) — clear-all must be before :id
+router.delete('/clear-all', protect, clearAllNotifications);
+router.delete('/:id', protect, deleteNotification);
+
 // ─── Admin routes ─────────────────────────────────────────────────────────────
 // FR-48: Admin notification history log
 router.get('/admin', protect, authorize('admin'), getAdminNotificationHistory);
+router.delete('/admin/:id', protect, authorize('admin'), adminDeleteNotification);
 
 // FR-43: Trigger new-content notification for a course's enrolled users
 router.post('/new-content', protect, authorize('admin'), notifyNewContent);

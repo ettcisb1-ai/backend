@@ -618,6 +618,27 @@ const assignCoursesToUser = async (req, res) => {
       }
     }
 
+    // Send notification for removed courses
+    if (removed.length > 0) {
+      try {
+        const Notification = require('../Models/Notification');
+        const removedCourses = await Course.find({ _id: { $in: removed } }).select('title');
+
+        const removalDocs = removedCourses.map(course => ({
+          user: user._id,
+          title: 'Course Access Removed',
+          message: `Your access to the course "${course.title}" has been removed by the administrator. Contact support if you need assistance.`,
+          type: 'course_removed',
+          course: course._id,
+          audience: 'all',
+        }));
+
+        await Notification.insertMany(removalDocs);
+      } catch (notifErr) {
+        console.error('Error sending course removal notifications in assignCoursesToUser:', notifErr);
+      }
+    }
+
     // Return the updated user with course details populated
     const updatedUser = await User.findById(user._id).lean();
     const assignedCourses = await Course.find({ _id: { $in: newCourseIds } })
