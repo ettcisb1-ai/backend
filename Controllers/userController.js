@@ -63,8 +63,8 @@ const registerUser = async (req, res) => {
       ip: clientIp,
       registeredIp: clientIp,
       ipLockEnabled: req.body.ipLockEnabled !== undefined ? req.body.ipLockEnabled : false,
-      subscribed: req.body.subscribed !== undefined ? req.body.subscribed : false,
-      planType: req.body.planType || 'Free',
+      subscribed: false,
+      planType: 'Free',
       currency: req.body.currency || 'PKR',
       purchaseDate: formatDate(new Date()),           // Always server-set; clients cannot override
       expiryDate: calculateTwoMonthsExpiry(new Date()), // Always server-set; clients cannot override

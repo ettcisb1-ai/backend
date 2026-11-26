@@ -1,5 +1,6 @@
 const Video = require('../Models/Video');
 const Course = require('../Models/Course');
+const SubscriptionSettings = require('../Models/Subscription');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -223,6 +224,28 @@ const getStreamToken = async (req, res) => {
       });
     }
 
+    // ── Validation: course enrollment / subscription access (non-admin) ──────
+    if (req.user.role !== 'admin' && video.course) {
+      const course = await Course.findById(video.course).select('title price').lean();
+      const userCourses = (req.user.courses || []).map(c => c.toString());
+      const courseId = video.course.toString();
+      const isEnrolled = userCourses.includes(courseId) || (course && userCourses.includes(course.title));
+
+      if (!isEnrolled) {
+        const settings = await SubscriptionSettings.getSingleton();
+        const isPortalFree = !settings.subscriptionModeEnabled || settings.portalMode === 'free';
+        const isCourseFree = course && course.price === 'Free';
+        const isSubscribed = Boolean(req.user.subscribed);
+
+        if (!isPortalFree && !isCourseFree && !isSubscribed) {
+          return res.status(403).json({
+            success: false,
+            message: 'You do not have access to this course. Please enroll or subscribe to watch this video.',
+          });
+        }
+      }
+    }
+
     // ── Security headers on every token response ───────────────────────────
     applySecurityHeaders(res);
 
@@ -235,18 +258,41 @@ const getStreamToken = async (req, res) => {
     };
 
     // ── Path 0: DRM protected video — return Widevine DASH stream & license server ──
-    // FOR TESTING: Force DRM (Widevine) on all videos so screenshot blackout is active
     if (video.drm) {
-      return res.status(200).json({
-        success: true,
-        streamUrl: 'https://storage.googleapis.com/shaka-demo-assets/sintel-widevine/dash.mpd',
-        licenseServerUrl: 'https://cwip-shaka-proxy.appspot.com/no_auth',
-        isDrm: true,
-        isHLS: false,
-        isDASH: true,
-        expiresIn: 7200,
-        security: securityFlags,
-      });
+      const configuredStreamUrl = process.env.DRM_STREAM_URL;
+      const configuredLicenseUrl = process.env.DRM_LICENSE_SERVER_URL;
+      const allowDemoDrm =
+        process.env.NODE_ENV !== 'production' && process.env.ALLOW_DEMO_DRM === 'true';
+
+      if (configuredStreamUrl && configuredLicenseUrl) {
+        return res.status(200).json({
+          success: true,
+          streamUrl: configuredStreamUrl,
+          licenseServerUrl: configuredLicenseUrl,
+          isDrm: true,
+          isHLS: false,
+          isDASH: true,
+          expiresIn: 7200,
+          security: securityFlags,
+        });
+      }
+
+      if (allowDemoDrm) {
+        return res.status(200).json({
+          success: true,
+          streamUrl: 'https://storage.googleapis.com/shaka-demo-assets/sintel-widevine/dash.mpd',
+          licenseServerUrl: 'https://cwip-shaka-proxy.appspot.com/no_auth',
+          isDrm: true,
+          isHLS: false,
+          isDASH: true,
+          expiresIn: 7200,
+          security: securityFlags,
+        });
+      }
+
+      console.warn(
+        `DRM is enabled on video ${video._id} but DRM_STREAM_URL / DRM_LICENSE_SERVER_URL are not configured; falling back to standard stream.`
+      );
     }
 
     // ── Path A: S3-hosted video — return a short-lived presigned GET URL ─────
